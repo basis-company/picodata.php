@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - run: composer update --no-interaction --prefer-dist --no-progress
+      - run: vendor/bin/phpunit --testsuite unit
+
+  coding-standards:
+    name: PSR-12 (php-cs-fixer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - run: composer update --no-interaction --prefer-dist --no-progress
+      - run: vendor/bin/php-cs-fixer fix --dry-run --diff
+
+  integration:
+    name: Integration (Picodata cluster)
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY_USER: ${{ secrets.PICODATA_REGISTRY_USERNAME }}
+      REGISTRY_PASS: ${{ secrets.PICODATA_REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to the Picodata image registry (when credentials are set)
+        if: ${{ env.REGISTRY_USER != '' }}
+        run: echo "$REGISTRY_PASS" | docker login "${REGISTRY:-docker.binary.picodata.io}"
+          --username "$REGISTRY_USER" --password-stdin
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - name: Install dependencies (vendor/ is mounted into the phpunit container)
+        run: composer update --no-interaction --prefer-dist --no-progress
+      - name: Start the two-node cluster
+        run: docker compose up -d --wait
+      - name: Wait until both nodes report Online
+        run: |
+          for node in picodata-1-1 picodata-1-2; do
+            for i in $(seq 1 60); do
+              if echo 'SELECT current_state FROM _pico_instance' |
+                 docker compose exec -T "$node" picodata admin /var/lib/picodata/admin.sock |
+                 grep -q Online; then
+                echo "$node: Online"
+                break
+              fi
+              if [ "$i" = 60 ]; then
+                echo "$node never reached Online"
+                docker compose logs
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+      - name: Run integration tests
+        run: docker compose run --rm phpunit --testsuite integration
+      - name: Cluster logs on failure
+        if: failure()
+        run: docker compose logs
