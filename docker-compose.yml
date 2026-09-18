@@ -1,0 +1,78 @@
+# Two-instance Picodata test cluster (mirrors the picopyn driver's docker-compose).
+# No published ports: integration tests run in the phpunit service on the same
+# compose network (hosts picodata-1-1 / picodata-1-2, pg proto 5432; admin/T0psecret).
+# Run: docker compose up -d && docker compose run --rm phpunit --testsuite integration
+#
+# replication_factor 1 matches Picodata's own CI (a 2-node cluster can't reach rf 2
+# for two tiers during bootstrap, and vshard stalls at bootstrapped=false). Two
+# tiers, one instance each, keep both nodes Online for the cross-node tests and
+# give the Tier('hot') integration case a real, placeable tier.
+services:
+  picodata-1-1:
+    image: ${REGISTRY:-docker.binary.picodata.io}/picodata:${PICODATA_VERSION:-26.1.6}
+    container_name: picodata-1-1
+    hostname: picodata-1-1
+    command:
+      - run
+      - -c
+      - cluster.name=picodata_php_ci
+      - -c
+      - cluster.tier={"default":{"replication_factor":1,"bucket_count":3000},"hot":{"replication_factor":1,"bucket_count":1500}}
+    environment:
+      PICODATA_PEER: picodata-1-1:3301
+      PICODATA_LISTEN: picodata-1-1:3301
+      PICODATA_ADVERTISE: picodata-1-1:3301
+      PICODATA_INSTANCE_DIR: /var/lib/picodata
+      PICODATA_INSTANCE_TIER: default
+      PICODATA_FAILURE_DOMAIN: HOST=picodata-1
+      PICODATA_INIT_REPLICATION_FACTOR: 1
+      PICODATA_HTTP_LISTEN: picodata-1-1:8001
+      PICODATA_PG_LISTEN: picodata-1-1:5432
+      PICODATA_ADMIN_PASSWORD: T0psecret
+      PICODATA_LOG_LEVEL: info
+    volumes:
+      - picodata-1-1-data:/var/lib/picodata
+    healthcheck:
+      test: ["CMD-SHELL", "echo \"SELECT current_state FROM _pico_instance;\" | picodata admin /var/lib/picodata/admin.sock 2>/dev/null | grep -q Online"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  picodata-1-2:
+    image: ${REGISTRY:-docker.binary.picodata.io}/picodata:${PICODATA_VERSION:-26.1.6}
+    container_name: picodata-1-2
+    hostname: picodata-1-2
+    command:
+      - run
+      - -c
+      - cluster.name=picodata_php_ci
+      - -c
+      - cluster.tier={"default":{"replication_factor":1,"bucket_count":3000},"hot":{"replication_factor":1,"bucket_count":1500}}
+    environment:
+      PICODATA_PEER: picodata-1-1:3301
+      PICODATA_LISTEN: picodata-1-2:3301
+      PICODATA_ADVERTISE: picodata-1-2:3301
+      PICODATA_INSTANCE_DIR: /var/lib/picodata
+      PICODATA_INSTANCE_TIER: hot
+      PICODATA_FAILURE_DOMAIN: HOST=picodata-1
+      PICODATA_INIT_REPLICATION_FACTOR: 1
+      PICODATA_HTTP_LISTEN: picodata-1-2:8001
+      PICODATA_PG_LISTEN: picodata-1-2:5432
+      PICODATA_ADMIN_PASSWORD: T0psecret
+      PICODATA_LOG_LEVEL: info
+    volumes:
+      - picodata-1-2-data:/var/lib/picodata
+    depends_on:
+      picodata-1-1:
+        condition: service_healthy
+
+  phpunit:
+    profiles: ["test"]
+    build: docker/php
+    volumes:
+      - $PWD:/app
+    entrypoint: vendor/bin/phpunit
+
+volumes:
+  picodata-1-1-data:
+  picodata-1-2-data:
