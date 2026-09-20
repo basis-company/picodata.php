@@ -16,14 +16,33 @@ final class Quoter
     }
 
     /**
+     * SQL keywords sbroad's parser never accepts as bare identifiers in
+     * column position (table/group/key are keywords even though they match
+     * the plain-name regex). Such names must be quoted.
+     */
+    private const array KEYWORDS = [
+        'all', 'alter', 'and', 'any', 'as', 'asc', 'between', 'by', 'case',
+        'cast', 'check', 'column', 'constraint', 'create', 'cross', 'current',
+        'default', 'delete', 'desc', 'distinct', 'drop', 'else', 'end',
+        'engine', 'except', 'exists', 'false', 'for', 'foreign', 'format',
+        'from', 'full', 'globally', 'grant', 'group', 'having', 'if', 'ilike',
+        'in', 'index', 'inner', 'insert', 'intersect', 'into', 'is', 'join',
+        'key', 'left', 'like', 'limit', 'not', 'null', 'offset', 'on', 'or',
+        'order', 'outer', 'primary', 'references', 'right', 'select', 'set',
+        'similar', 'table', 'then', 'tier', 'to', 'true', 'union', 'unique',
+        'unlogged', 'using', 'values', 'when', 'where', 'window', 'with',
+    ];
+
+    /**
      * Quote a (possibly dotted) SQL identifier; parts that are plain
-     * lowercase names stay bare.
+     * lowercase non-keyword names stay bare.
      */
     public static function identifier(string $name): string
     {
         $parts = [];
         foreach (explode('.', $name) as $part) {
             $parts[] = preg_match('/^[a-z_][a-z0-9_]*$/', $part) === 1
+                    && !in_array($part, self::KEYWORDS, true)
                 ? $part
                 : '"' . str_replace('"', '""', $part) . '"';
         }
