@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Basis\Picodata\Driver;
 
 use Basis\Picodata\Driver;
+use Basis\Picodata\Exception\ConnectionException;
 use Basis\Picodata\Exception\ExecutionException;
 use Basis\Picodata\Exception\InvalidException;
 use Basis\Picodata\Quoter;
@@ -41,6 +42,18 @@ final class Pgsql implements Driver
             : pg_query_params($connection, $sql, $ordered);
 
         if ($result === false) {
+            if (pg_connection_status($connection) !== PGSQL_CONNECTION_OK) {
+                // the host went away mid-statement; drop the handle so the
+                // next call reconnects (or Driver\Pool fails over)
+                $this->connection = null;
+
+                throw new ConnectionException(sprintf(
+                    'Connection lost: %s; SQL: %s',
+                    pg_last_error($connection) ?: 'connection closed by server',
+                    $sql,
+                ));
+            }
+
             throw new ExecutionException(
                 sprintf('Query failed: %s; SQL: %s', pg_last_error($connection), $sql),
             );
@@ -77,7 +90,7 @@ final class Pgsql implements Driver
 
     /**
      * @throws InvalidException When ext-pgsql is missing.
-     * @throws ExecutionException When the connection fails.
+     * @throws ConnectionException When the connection fails.
      */
     private function connect(): \PgSql\Connection
     {
@@ -91,9 +104,17 @@ final class Pgsql implements Driver
 
         $connection = @pg_connect($this->dsn);
         if ($connection === false) {
-            throw new ExecutionException('Unable to connect to pgsql: ' . $this->dsn);
+            throw new ConnectionException('Unable to connect to picodata: ' . self::redact($this->dsn));
         }
 
         return $this->connection = $connection;
+    }
+
+    /** Mask the password so it never leaks into logs or exception text. */
+    private static function redact(string $dsn): string
+    {
+        $dsn = preg_replace('#(://[^@/?]*:)[^@/?]*@#', '$1***@', $dsn);
+
+        return preg_replace('#\bpassword(=|\s+)\S+#i', 'password$1***', $dsn) ?? $dsn;
     }
 }
