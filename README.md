@@ -40,6 +40,36 @@ $db->transaction(function (Picodata $db) {
 
 **DSN.** Pass a libpq URI (`postgresql://user:pass@host:5432/db`); the keyword form (`host=… user=…`) is rejected by Picodata's pgwire — details under **Development & testing**.
 
+### Pool (multiple hosts)
+
+Give the client one DSN per host and it picks one at random on the first
+statement, then fails over to the next host whenever the current one goes
+away (`ConnectionException`). A statement the server *rejected*
+(`ExecutionException`) is never replayed on another host. A failed host is
+skipped for 5 seconds — in process memory only; there is no discovery and
+no persistence, the pool is exactly the list you passed.
+
+```php
+use Basis\Picodata\Picodata;
+
+$db = Picodata::connectPool([
+    'postgresql://app:secret@h1:5432/picodata',
+    'postgresql://app:secret@h2:5432/picodata',
+    'postgresql://app:secret@h3:5432/picodata',
+]);
+
+// or straight from an env var (comma-separated):
+//   PICODATA_DSN=postgresql://app:secret@h1:5432/picodata,postgresql://app:secret@h2:5432/picodata
+use Basis\Picodata\Driver\Pool;
+
+$db = new Picodata(Pool::fromEnv());
+```
+
+Shuffling the list at construction spreads concurrent php-fpm workers over
+the hosts from the first statement on; every new worker re-rolls. Since
+Picodata's pg wire is autocommit-only, reconnecting to another host never
+strands an open transaction.
+
 ## Schema
 
 Everything the cluster knows about its own tables is one call away, and the library can keep a declared schema in sync with it. Read first — a cluster may already hold tables this program never created; then declare your own. Entity classes, once you write them, slot into the very same methods.
