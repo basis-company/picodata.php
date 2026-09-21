@@ -24,13 +24,14 @@ final class Quoter
         'all', 'alter', 'and', 'any', 'as', 'asc', 'between', 'by', 'case',
         'cast', 'check', 'column', 'constraint', 'create', 'cross', 'current',
         'default', 'delete', 'desc', 'distinct', 'drop', 'else', 'end',
-        'engine', 'except', 'exists', 'false', 'for', 'foreign', 'format',
-        'from', 'full', 'globally', 'grant', 'group', 'having', 'if', 'ilike',
-        'in', 'index', 'inner', 'insert', 'intersect', 'into', 'is', 'join',
-        'key', 'left', 'like', 'limit', 'not', 'null', 'offset', 'on', 'or',
-        'order', 'outer', 'primary', 'references', 'right', 'select', 'set',
-        'similar', 'table', 'then', 'tier', 'to', 'true', 'union', 'unique',
-        'unlogged', 'using', 'values', 'when', 'where', 'window', 'with',
+        'engine', 'except', 'exists', 'false', 'filter', 'for', 'foreign',
+        'format', 'from', 'full', 'globally', 'grant', 'group', 'having', 'if',
+        'ilike', 'in', 'index', 'inner', 'insert', 'intersect', 'into', 'is',
+        'join', 'key', 'left', 'like', 'limit', 'not', 'null', 'offset', 'on',
+        'option', 'or', 'order', 'outer', 'primary', 'references', 'right',
+        'select', 'set', 'similar', 'table', 'then', 'tier', 'to', 'true',
+        'union', 'unique', 'unlogged', 'using', 'values', 'when', 'where',
+        'window', 'with',
     ];
 
     /**
