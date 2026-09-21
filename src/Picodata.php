@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Basis\Picodata;
 
 use Basis\Picodata\Driver\Pgsql;
+use Basis\Picodata\Driver\Pool;
 use Basis\Picodata\Exception\NotFoundException;
 use Basis\Picodata\Map\Mapper;
 use Basis\Picodata\Map\Resolver;
@@ -47,6 +48,19 @@ final class Picodata implements Driver
     public static function connect(string $dsn, ?Mapper $mapper = null, ?Resolver $resolver = null): self
     {
         return new self(new Pgsql($dsn), $mapper ?? new Mapper($resolver));
+    }
+
+    /**
+     * Connect to a pool of hosts: one DSN per entry, picked at random on the
+     * first statement, failing over to the next host on a lost connection
+     * (see Driver\Pool). Typical setup is one comma-separated PICODATA_DSN
+     * env var:
+     *
+     *   Picodata::connectPool(explode(',', getenv('PICODATA_DSN')));
+     */
+    public static function connectPool(array $dsns, ?Mapper $mapper = null, ?Resolver $resolver = null): self
+    {
+        return new self(new Pool($dsns), $mapper ?? new Mapper($resolver));
     }
 
     /**
