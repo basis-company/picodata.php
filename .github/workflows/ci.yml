@@ -67,7 +67,7 @@ jobs:
             for i in $(seq 1 60); do
               if echo 'SELECT current_state FROM _pico_instance' |
                  docker compose exec -T "$node" picodata admin /var/lib/picodata/admin.sock |
-                 grep -q Online; then
+                 grep Online > /dev/null; then
                 echo "$node: Online"
                 break
               fi
