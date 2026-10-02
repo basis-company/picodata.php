@@ -28,6 +28,15 @@ final class Changes
         'CREATE UNIQUE INDEX picodata_subscription_listener_tablename_idx ON ' . self::SUBSCRIPTION_TABLE . ' USING TREE (listener, tablename)',
     ];
 
+    /**
+     * Max ids sent in one DELETE. Picodata's planner (reproduced on 26.1)
+     * recurses per `IN` element while pushing NOT down
+     * (`push_down_not_for_expression`): a single `DELETE ... WHERE id IN (?)`
+     * with ~1.5k or more placeholders overflows the stack and segfaults the
+     * whole server. 1k lists are fine, so 500 keeps a 3x safety margin.
+     */
+    public const ACK_CHUNK = 500;
+
     /** @var array<string, list<string>|null> table => listeners cache */
     private array $cache = [];
 
@@ -145,16 +154,18 @@ final class Changes
     public function ack(array $ids): int
     {
         $this->ensure();
-        if ($ids === []) {
-            return 0;
+
+        $affected = 0;
+        foreach (array_chunk($ids, self::ACK_CHUNK) as $chunk) {
+            $affected += $this->driver
+                ->statement(
+                    'DELETE FROM ' . self::CHANGE_TABLE . ' WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                    $chunk,
+                )
+                ->rowCount();
         }
 
-        return $this->driver
-            ->statement(
-                'DELETE FROM ' . self::CHANGE_TABLE . ' WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
-                $ids,
-            )
-            ->rowCount();
+        return $affected;
     }
 
     /** Metadata attached to every journal row (array or callable snapshot). */

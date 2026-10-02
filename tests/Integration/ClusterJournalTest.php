@@ -123,6 +123,41 @@ final class ClusterJournalTest extends IntegrationTestCase
         self::assertSame(['jt_other', 'jt_user'], $seen);
     }
 
+    /**
+     * Regression: picodata 26.1 segfaults (recursive push_down_not_for_expression)
+     * when one DELETE carries ~1.5k IN placeholders, so a plain single-statement
+     * ack of a big journal drain kills the whole server. ack() chunks instead;
+     * this drains 1600 journal rows and asserts the cluster is still answering.
+     */
+    public function test_ack_of_a_huge_batch_keeps_the_cluster_alive(): void
+    {
+        $this->db->changes()->register('jt_user', 'bulk');
+
+        // direct multi-row journal inserts (a VALUES batch is planner-safe)
+        $total = 1600;
+        for ($offset = 0; $offset < $total; $offset += 400) {
+            $groups = [];
+            $params = [];
+            for ($i = $offset; $i < $offset + 400; $i++) {
+                $groups[] = '(?,?,?,?,?,?,CURRENT_TIMESTAMP)';
+                array_push($params, sprintf('bulk-%05d', $i), 'bulk', 'jt_user', 'update', '{"id":1}', '{}');
+            }
+            $this->db->execute(
+                'INSERT INTO picodata_change (id, listener, tablename, action, data, context, created_at) VALUES '
+                . implode(',', $groups),
+                $params,
+            );
+        }
+
+        $changes = $this->db->changes()->get('bulk', limit: $total + 10);
+        self::assertCount($total, $changes);
+
+        self::assertSame($total, $this->db->changes()->ack(array_column($changes, 'id')));
+        self::assertSame([], $this->db->changes()->get('bulk'));
+
+        self::assertSame(1, (int) $this->db->statement('SELECT 1 AS one')->first()['one'], 'the server survived the drain');
+    }
+
     public function test_journal_tables_created_lazily(): void
     {
         self::assertFalse($this->db->schema()->exists('picodata_change'));

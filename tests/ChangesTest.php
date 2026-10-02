@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Basis\Picodata\Test;
 
 use Basis\Picodata\Attribute\TableName;
+use Basis\Picodata\Changes;
 use Basis\Picodata\Driver;
 use Basis\Picodata\Picodata;
 use Basis\Picodata\Result;
@@ -241,6 +242,49 @@ final class ChangesTest extends TestCase
         $db->update(ChgUser::class, 1, ['username' => 'b']);
 
         self::assertCount(0, array_filter($this->log, static fn (array $e): bool => str_starts_with($e['sql'], 'INSERT INTO picodata_change')));
+    }
+
+    /**
+     * Regression: a single DELETE with ~1.5k `IN` placeholders stack-overflows
+     * the picodata planner (segfault in push_down_not_for_expression, 26.1).
+     * ack() must chunk so the server never sees a near-1k placeholder list.
+     */
+    public function test_ack_chunks_huge_id_lists_below_the_server_limit(): void
+    {
+        $ids = array_map(static fn (int $i): string => 'c' . $i, range(1, 1201));
+
+        $db = $this->db([
+            ['rows' => [['name' => 'picodata_change']]],
+            ['rows' => [['name' => 'picodata_subscription']]],
+            ['affected' => 500],
+            ['affected' => 500],
+            ['affected' => 201],
+        ]);
+
+        self::assertSame(1201, $db->changes()->ack($ids));
+
+        $deletes = array_values(array_filter(
+            $this->log,
+            static fn (array $e): bool => str_starts_with($e['sql'], 'DELETE FROM picodata_change'),
+        ));
+
+        self::assertCount(3, $deletes, '1201 ids drain in ceil(1201/500) = 3 statements');
+        foreach ($deletes as $delete) {
+            self::assertLessThanOrEqual(Changes::ACK_CHUNK, count($delete['params']));
+            self::assertSame(substr_count($delete['sql'], '?'), count($delete['params']));
+        }
+        self::assertSame($ids, array_merge(...array_column($deletes, 'params')), 'every id is acked, in order');
+    }
+
+    public function test_ack_of_an_empty_list_sends_no_sql(): void
+    {
+        $db = $this->db([
+            ['rows' => [['name' => 'picodata_change']]],
+            ['rows' => [['name' => 'picodata_subscription']]],
+        ]);
+
+        self::assertSame(0, $db->changes()->ack([]));
+        self::assertCount(0, array_filter($this->log, static fn (array $e): bool => str_starts_with($e['sql'], 'DELETE')));
     }
 
     private function journalEntry(): array
